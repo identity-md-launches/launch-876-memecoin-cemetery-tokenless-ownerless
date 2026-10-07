@@ -3,7 +3,7 @@ pragma solidity 0.8.26;
 
 /// @title Memecoin Cemetery
 /// @notice Permissionless wakes, holder vetoes and permanent burial histories. No owner or fees.
-/// @dev Token responses are untrusted; every external call is static, gas-capped and size-bounded.
+/// @dev Token responses are untrusted; reads are static and size-bounded. Holder checks use caller-funded gas.
 contract MemecoinCemetery {
     enum State {
         None,
@@ -108,7 +108,7 @@ contract MemecoinCemetery {
         }
         if (block.timestamp < _cooldownEnds[token]) revert CooldownActive(_cooldownEnds[token]);
         if (token.code.length == 0) revert InvalidToken(token);
-        uint256 supply = _requiredWord(token, abi.encodeWithSelector(TOTAL_SUPPLY), TOTAL_SUPPLY);
+        uint256 supply = _requiredWord(token, abi.encodeWithSelector(TOTAL_SUPPLY), TOTAL_SUPPLY, TOKEN_GAS);
         if (supply == 0) revert InvalidToken(token);
 
         g.state = State.Wake;
@@ -268,29 +268,38 @@ contract MemecoinCemetery {
     }
 
     /// @dev Require balance >= max(1, min(10**decimals, supply/1000)) using current token responses.
+    /// @dev Forward available gas (subject to EIP-150) so costly token reads can be funded by the defending holder.
     function _requireHolder(address token) private view {
-        uint256 supply = _requiredWord(token, abi.encodeWithSelector(TOTAL_SUPPLY), TOTAL_SUPPLY);
-        (bool ok, uint256 decimals) = _readWord(token, abi.encodeWithSelector(DECIMALS));
+        uint256 supply = _requiredWord(token, abi.encodeWithSelector(TOTAL_SUPPLY), TOTAL_SUPPLY, gasleft());
+        (bool ok, uint256 decimals) = _readWord(token, abi.encodeWithSelector(DECIMALS), gasleft());
         if (!ok || decimals > 36) decimals = 18;
         uint256 threshold = 10 ** decimals;
         uint256 fraction = supply / 1000;
         if (fraction < threshold) threshold = fraction;
         if (threshold == 0) threshold = 1;
-        uint256 balance = _requiredWord(token, abi.encodeWithSelector(BALANCE_OF, msg.sender), BALANCE_OF);
+        uint256 balance = _requiredWord(token, abi.encodeWithSelector(BALANCE_OF, msg.sender), BALANCE_OF, gasleft());
         if (balance < threshold) revert NotHolder(msg.sender, threshold);
     }
 
     /// @dev Read a mandatory ABI word, turning reverts, oversized and truncated results into a custom error.
-    function _requiredWord(address token, bytes memory data, bytes4 selector) private view returns (uint256 value) {
+    function _requiredWord(address token, bytes memory data, bytes4 selector, uint256 gasLimit)
+        private
+        view
+        returns (uint256 value)
+    {
         bool ok;
-        (ok, value) = _readWord(token, data);
+        (ok, value) = _readWord(token, data, gasLimit);
         if (!ok) revert TokenReadFailed(token, selector);
     }
 
-    /// @dev Copy at most one word, regardless of how much data the token returns or reverts with.
-    function _readWord(address token, bytes memory data) private view returns (bool ok, uint256 value) {
+    /// @dev Use the caller-selected gas allowance and copy at most one word, regardless of return/revert size.
+    function _readWord(address token, bytes memory data, uint256 gasLimit)
+        private
+        view
+        returns (bool ok, uint256 value)
+    {
         assembly ("memory-safe") {
-            ok := staticcall(TOKEN_GAS, token, add(data, 32), mload(data), 0, 32)
+            ok := staticcall(gasLimit, token, add(data, 32), mload(data), 0, 32)
             ok := and(ok, eq(returndatasize(), 32))
             value := mload(0)
         }

@@ -88,13 +88,25 @@ while burial always requires the full unopposed wake. There are no historical
 balance snapshots, staking, lockups or delegation. Balances held inside an
 exchange, pool or vault are not attributed to its users by this contract.
 
-Every token read uses `STATICCALL` with at most 50,000 gas. Integer reads copy at
-most 32 return bytes. Token implementations can lie, change their responses, or
-be upgraded independently; the cemetery cannot establish truthful ownership
-beyond `balanceOf`. Tokens whose supply/balance reads fail or require more gas
-may be unable to be nominated or defended. Sealing and mourning require no token
-calls, so broken metadata does not block those actions. Static calls prevent
-token callbacks from changing cemetery state.
+Every token read uses `STATICCALL`. Nomination's supply read and headstone's
+symbol read remain capped at 50,000 gas. Holder checks in `itLives` and `rise`
+forward available gas for supply, decimals and balance, subject to EVM forwarding
+limits. This lets holders fund more expensive reads, including reflection-token
+balance calculations. Callers must budget enough transaction gas; a hostile token
+can exhaust that budget. Integer reads still copy at most 32 return bytes and
+require exactly one ABI word. Token implementations can lie, change their
+responses, or be upgraded independently; the cemetery cannot establish truthful
+ownership beyond `balanceOf`. Unreadable supply/balance responses still prevent
+defence. Sealing and mourning require no token calls, so broken metadata does not
+block those actions. Static calls prevent token callbacks from changing cemetery
+state.
+
+Nomination checks code and positive supply, not ERC-20 conformance. Other contracts
+with compatible selectors, including enumerable ERC-721 collections, can be dug.
+The same holder formula applies: a collection with supply 10,000 and no `decimals()`
+requires a balance of 10 NFTs, so a holder of nine cannot object. The intended input
+class is ERC-20s; integrations should not treat a successful nomination as proof
+of token type.
 
 ## Epitaphs and headstones
 

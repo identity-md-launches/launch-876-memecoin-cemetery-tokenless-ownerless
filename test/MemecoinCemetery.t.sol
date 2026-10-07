@@ -397,6 +397,7 @@ contract MemecoinCemeteryTest is Test {
     }
 
     function test_missingMalformedAndGasBombDecimalsDefaultTo18() public {
+        // Bound each simulated transaction so gas bombs cannot consume the entire multi-call test budget.
         for (uint256 mode; mode < 5; ++mode) {
             RawToken raw = _validRaw();
             if (mode == 0) raw.setResponse(DECIMALS, "");
@@ -408,10 +409,10 @@ contract MemecoinCemeteryTest is Test {
             raw.setResponse(BALANCE, abi.encode(1 ether - 1));
             vm.prank(HOLDER);
             vm.expectRevert(abi.encodeWithSelector(MemecoinCemetery.NotHolder.selector, HOLDER, 1 ether));
-            cemetery.itLives(address(raw));
+            cemetery.itLives{gas: 10_000_000}(address(raw));
             raw.setResponse(BALANCE, abi.encode(1 ether));
             vm.prank(HOLDER);
-            cemetery.itLives(address(raw));
+            cemetery.itLives{gas: 10_000_000}(address(raw));
         }
     }
 
@@ -420,21 +421,21 @@ contract MemecoinCemeteryTest is Test {
         _dig(address(raw), 0);
         raw.setMode(SUPPLY, 1);
         vm.expectRevert(abi.encodeWithSelector(MemecoinCemetery.TokenReadFailed.selector, address(raw), SUPPLY));
-        cemetery.itLives(address(raw));
+        cemetery.itLives{gas: 10_000_000}(address(raw));
         raw.setResponse(SUPPLY, abi.encode(1_000_000 ether));
         raw.setResponse(BALANCE, new bytes(31));
         vm.expectRevert(abi.encodeWithSelector(MemecoinCemetery.TokenReadFailed.selector, address(raw), BALANCE));
-        cemetery.itLives(address(raw));
+        cemetery.itLives{gas: 10_000_000}(address(raw));
         vm.warp(START + 72 hours);
         cemetery.seal(address(raw));
         for (uint8 mode = 1; mode <= 3; ++mode) {
             raw.setMode(BALANCE, mode);
             vm.expectRevert(abi.encodeWithSelector(MemecoinCemetery.TokenReadFailed.selector, address(raw), BALANCE));
-            cemetery.rise(address(raw));
+            cemetery.rise{gas: 10_000_000}(address(raw));
         }
         raw.setMode(SUPPLY, 2);
         vm.expectRevert(abi.encodeWithSelector(MemecoinCemetery.TokenReadFailed.selector, address(raw), SUPPLY));
-        cemetery.rise(address(raw));
+        cemetery.rise{gas: 10_000_000}(address(raw));
         assertEq(cemetery.graveCount(), 1);
         assertEq(cemetery.graveOf(address(raw)).rises, 0);
     }
