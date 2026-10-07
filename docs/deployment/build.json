@@ -1,0 +1,20 @@
+{
+  "contract": "src/MemecoinCemetery.sol:MemecoinCemetery",
+  "compiler": "0.8.26+commit.8a97fa7a",
+  "evmVersion": "cancun",
+  "optimizer": {
+    "enabled": true,
+    "runs": 200
+  },
+  "bytecodeHash": "none",
+  "chainId": 4663,
+  "constructorArgs": [],
+  "deploymentValueWei": "0",
+  "creationBytecodeBytes": 11181,
+  "runtimeBytecodeBytes": 9225,
+  "creationBytecodeKeccak256": "0x20658896b3b59a6e101b69808b25ba6712f67e1f0e8c93a232b53cf3f6359814",
+  "runtimeBytecodeKeccak256": "0x90564ccf50e68a105ddc444a3021ee2c029490873f0095b1d821433463cb80ed",
+  "sourceSha256": "59cef46d8ff7a3cae9e2be006e1bb6c536c4edfca2744aaf2b906aebf1353993",
+  "verificationInputReproducesCreationAndRuntime": true,
+  "deploymentStatus": "Not deployed by this assignment; explorer verification requires the confirmed deployed address."
+}
