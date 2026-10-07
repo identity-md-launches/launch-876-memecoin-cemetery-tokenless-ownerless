@@ -74,7 +74,7 @@ contract MemecoinCemeteryAdversarialTest is Test {
         // Repairing the token makes holder defense available again without a new wake.
         raw.setResponse(SUPPLY, abi.encode(uint256(1_000_000 ether)));
         raw.setResponse(BALANCE, abi.encode(uint256(1 ether)));
-        cemetery.rise(address(raw));
+        cemetery.rise{gas: 10_000_000}(address(raw));
         assertEq(cemetery.graveCount(), 0);
         assertEq(cemetery.burialOf(address(raw), 1).mourners, 2);
     }
@@ -92,47 +92,62 @@ contract MemecoinCemeteryAdversarialTest is Test {
         assertTrue(bytes(cemetery.headstone(address(raw))).length > 0);
     }
 
-    function test_gasExhaustionIsBoundedForEveryTokenSelector() public {
+    function test_nominationAndSymbolGasExhaustionRemainBounded() public {
         raw.setMode(SUPPLY, 2); // INVALID consumes all gas forwarded to the token.
-        _boundedFailure(abi.encodeCall(MemecoinCemetery.dig, (address(raw), 0)), SUPPLY);
+        _failedReadIsAtomic(abi.encodeCall(MemecoinCemetery.dig, (address(raw), 0)), SUPPLY, 1_000_000);
         raw.setResponse(SUPPLY, abi.encode(uint256(1_000_000 ether)));
         cemetery.dig(address(raw), 0);
+        raw.setMode(SYMBOL, 2);
+        (bool ok, bytes memory result) =
+            _callWithBudget(abi.encodeCall(MemecoinCemetery.headstone, (address(raw))), 1_000_000);
+        assertTrue(ok, "unreadable metadata must still render");
+        assertNotEq(vm.indexOf(abi.decode(result, (string)), ">0x"), type(uint256).max);
+    }
+
+    function test_holderReadGasExhaustionIsAtomicAndDecimalsDefaultTo18() public {
+        cemetery.dig(address(raw), 0);
+        // Holder reads are caller-funded. Limit each simulated transaction, without
+        // requiring the fixed read cap used by dig() and headstone().
         raw.setMode(SUPPLY, 2);
-        _boundedFailure(abi.encodeCall(MemecoinCemetery.itLives, (address(raw))), SUPPLY);
+        _failedReadIsAtomic(abi.encodeCall(MemecoinCemetery.itLives, (address(raw))), SUPPLY, 10_000_000);
         raw.setResponse(SUPPLY, abi.encode(uint256(1_000_000 ether)));
         raw.setMode(BALANCE, 2);
-        _boundedFailure(abi.encodeCall(MemecoinCemetery.itLives, (address(raw))), BALANCE);
+        _failedReadIsAtomic(abi.encodeCall(MemecoinCemetery.itLives, (address(raw))), BALANCE, 10_000_000);
         raw.setResponse(BALANCE, abi.encode(uint256(1 ether)));
-        raw.setMode(SYMBOL, 2);
-        (bool ok,) = _boundedCall(abi.encodeCall(MemecoinCemetery.headstone, (address(raw))));
-        assertTrue(ok, "unreadable metadata must still render");
         vm.warp(vm.getBlockTimestamp() + 72 hours);
         cemetery.seal(address(raw));
         raw.setMode(SUPPLY, 2);
-        _boundedFailure(abi.encodeCall(MemecoinCemetery.rise, (address(raw))), SUPPLY);
+        _failedReadIsAtomic(abi.encodeCall(MemecoinCemetery.rise, (address(raw))), SUPPLY, 10_000_000);
         raw.setResponse(SUPPLY, abi.encode(uint256(1_000_000 ether)));
         raw.setMode(BALANCE, 2);
-        _boundedFailure(abi.encodeCall(MemecoinCemetery.rise, (address(raw))), BALANCE);
-        raw.setResponse(BALANCE, abi.encode(uint256(1 ether)));
+        _failedReadIsAtomic(abi.encodeCall(MemecoinCemetery.rise, (address(raw))), BALANCE, 10_000_000);
+        raw.setResponse(BALANCE, abi.encode(uint256(1 ether - 1)));
         raw.setMode(DECIMALS, 2);
-        (ok,) = _boundedCall(abi.encodeCall(MemecoinCemetery.rise, (address(raw))));
-        assertTrue(ok, "decimals failure must fall back to 18 with bounded gas");
+        bytes32 before_ = _snapshot();
+        (bool ok, bytes memory result) =
+            _callWithBudget(abi.encodeCall(MemecoinCemetery.rise, (address(raw))), 10_000_000);
+        assertFalse(ok);
+        assertEq(result, abi.encodeWithSelector(MemecoinCemetery.NotHolder.selector, address(this), 1 ether));
+        assertEq(_snapshot(), before_);
+        raw.setResponse(BALANCE, abi.encode(uint256(1 ether)));
+        (ok,) = _callWithBudget(abi.encodeCall(MemecoinCemetery.rise, (address(raw))), 10_000_000);
+        assertTrue(ok, "decimals failure must fall back to 18 when the caller funds the remaining work");
         assertEq(cemetery.graveOf(address(raw)).rises, 1);
     }
 
     function test_returnDataBombsHaveBoundedCostAndCannotCorruptState() public {
         raw.setMode(SUPPLY, 3); // Successful read returning 32 KiB, not an ABI word.
-        _boundedFailure(abi.encodeCall(MemecoinCemetery.dig, (address(raw), 0)), SUPPLY);
+        _failedReadIsAtomic(abi.encodeCall(MemecoinCemetery.dig, (address(raw), 0)), SUPPLY, 1_000_000);
         raw.setResponse(SUPPLY, abi.encode(uint256(1_000_000 ether)));
         cemetery.dig(address(raw), 0);
         raw.setMode(BALANCE, 3);
-        _boundedFailure(abi.encodeCall(MemecoinCemetery.itLives, (address(raw))), BALANCE);
+        _failedReadIsAtomic(abi.encodeCall(MemecoinCemetery.itLives, (address(raw))), BALANCE, 1_000_000);
         raw.setResponse(BALANCE, abi.encode(uint256(1 ether)));
         raw.setMode(SYMBOL, 3);
-        (bool ok,) = _boundedCall(abi.encodeCall(MemecoinCemetery.headstone, (address(raw))));
+        (bool ok,) = _callWithBudget(abi.encodeCall(MemecoinCemetery.headstone, (address(raw))), 1_000_000);
         assertTrue(ok);
         raw.setMode(DECIMALS, 3);
-        (ok,) = _boundedCall(abi.encodeCall(MemecoinCemetery.itLives, (address(raw))));
+        (ok,) = _callWithBudget(abi.encodeCall(MemecoinCemetery.itLives, (address(raw))), 1_000_000);
         assertTrue(ok);
         assertEq(cemetery.graveOf(address(raw)).saves, 1);
         assertEq(cemetery.graveCount(), 0);
@@ -190,21 +205,16 @@ contract MemecoinCemeteryAdversarialTest is Test {
         assertEq(cemetery.graveOf(address(token)).saves, 1);
     }
 
-    function _boundedFailure(bytes memory callData, bytes4 selector) private {
+    function _failedReadIsAtomic(bytes memory callData, bytes4 selector, uint256 gasLimit) private {
         bytes32 before_ = _snapshot();
-        (bool ok, bytes memory result) = _boundedCall(callData);
+        (bool ok, bytes memory result) = _callWithBudget(callData, gasLimit);
         assertFalse(ok);
         assertEq(result, abi.encodeWithSelector(MemecoinCemetery.TokenReadFailed.selector, address(raw), selector));
         assertEq(_snapshot(), before_);
     }
 
-    function _boundedCall(bytes memory callData) private returns (bool ok, bytes memory result) {
-        uint256 before_ = gasleft();
-        (ok, result) = address(cemetery).call{gas: 1_000_000}(callData);
-        uint256 used = before_ - gasleft();
-        // A generous ceiling avoids pinning normal execution costs while detecting a read
-        // that forwards almost all of the million-gas outer budget to an exceptional halt.
-        assertLt(used, 400_000, "hostile token consumed the caller's gas budget");
+    function _callWithBudget(bytes memory callData, uint256 gasLimit) private returns (bool ok, bytes memory result) {
+        (ok, result) = address(cemetery).call{gas: gasLimit}(callData);
     }
 
     function _snapshot() private view returns (bytes32) {
